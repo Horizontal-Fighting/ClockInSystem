@@ -1,0 +1,253 @@
+// 拼拼英语打卡 · 数据模型
+//
+// ★★ 多租户铁律（改动前必读，见 docs/02 文档 1.4.2）★★
+//   1. 所有业务表必须带 tenantId；平台公共数据用 tenantId = 0
+//   2. tenantId 由 ORM 层自动注入（见 src/common/tenant/prisma-tenant.extension.ts），业务代码禁止手写
+//   3. 索引一律以 tenantId 打头
+//   4. 唯一索引必须包含 tenantId，否则跨租户冲突
+//
+// ★ 主键说明：文档约定 bigint。Prisma 映射为 JS BigInt，
+//   JSON 序列化会抛 "Do not know how to serialize a BigInt"，
+//   已在 main.ts 用 BigInt.prototype.toJSON 全局兜底（转 Number）。
+//   安全前提：ID 远小于 Number.MAX_SAFE_INTEGER(2^53)，本项目规模无风险。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────
+// 租户与账号
+// ─────────────────────────────────────────────────────────────
+
+/// 租户 = 培训机构。机构由平台人工开通，学生端靠扫码自助入班。
+model Tenant {
+  id           BigInt   @id @default(autoincrement())
+  name         String   @db.VarChar(64)
+  /// 机构码：全局唯一，用于扫码入班与后台识别
+  code         String   @unique @db.VarChar(32)
+  status       Int      @default(1) @db.TinyInt // 1正常 2停用
+  contactName  String?  @db.VarChar(32)
+  contactPhone String?  @db.VarChar(32)
+  /// 学员配额（G1 套餐与配额）
+  quotaStudent Int      @default(200)
+  expireAt     DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  users      UserTenant[]
+  configs    TenantConfig[]
+  students   Student[]
+  levels     Level[]
+  groups     ClassGroup[]
+  materials  Material[]
+
+  @@map("tenant")
+}
+
+/// 微信身份 / 账号身份。一个 user 可属于多个 tenant（一个家长报多家机构）。
+model User {
+  id        BigInt   @id @default(autoincrement())
+  /// 微信小程序 openid（仅取 openid，不采集手机号 —— 合规硬约束）
+  openid    String?  @unique @db.VarChar(64)
+  unionid   String?  @db.VarChar(64)
+  /// 账号登录：用户名 + 密码哈希（不限制设备数）
+  username  String?  @unique @db.VarChar(64)
+  password  String?  @db.VarChar(128)
+  nickname  String?  @db.VarChar(64)
+  avatarUrl String?  @db.VarChar(255)
+  status    Int      @default(1) @db.TinyInt // 1正常 2禁用
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenants UserTenant[]
+  consents GuardianConsent[]
+
+  @@index([status])
+  @@map("user")
+}
+
+/// user 与 tenant 的多对多关联。★ 不要假设 user 与 tenant 是一对一。
+model UserTenant {
+  id        BigInt   @id @default(autoincrement())
+  userId    BigInt
+  tenantId  BigInt
+  /// 角色：1家长 2教师 3机构管理员 4平台管理员
+  role      Int      @default(1) @db.TinyInt
+  status    Int      @default(1) @db.TinyInt
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id])
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([userId, tenantId])
+  @@index([tenantId, role])
+  @@map("user_tenant")
+}
+
+/// 租户级配置覆盖（评分权重、星级阈值、录音保留策略等）。
+/// key 相同的平台级配置用 tenantId = 0 表示。
+model TenantConfig {
+  id        BigInt   @id @default(autoincrement())
+  tenantId  BigInt
+  key       String   @db.VarChar(64)
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, key])
+  @@map("tenant_config")
+}
+
+// ─────────────────────────────────────────────────────────────
+// 学员与合规
+// ─────────────────────────────────────────────────────────────
+
+/// 分级字典。★ 承载评分严格度配置（scoreCoeff / starThreshold），
+/// 取代原「按学生年龄推导」方案 —— 因不采集生日。
+model Level {
+  id              BigInt   @id @default(autoincrement())
+  tenantId        BigInt
+  code            String   @db.VarChar(16) // L1 ~ L9
+  name            String   @db.VarChar(64)
+  sort            Int      @default(0)
+  /// SOE 苛刻指数 1.0~4.0，越大越严格
+  scoreCoeff      Decimal  @default(1.0) @db.Decimal(3, 1)
+  /// 星级阈值，如 {"3":85,"2":70,"1":0}
+  starThreshold   Json?
+  defaultEvalMode Int      @default(0) @db.TinyInt
+  status          Int      @default(1) @db.TinyInt
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id])
+  students  Student[]
+  materials Material[]
+
+  @@index([tenantId, sort])
+  @@map("level")
+}
+
+/// 学员档案。★ 数据最小化：只有昵称 + 系统预置头像。
+/// 已明确删除：真实姓名、生日、性别、年级、学校、位置、真人照片。
+model Student {
+  id           BigInt    @id @default(autoincrement())
+  tenantId     BigInt
+  nickname     String    @db.VarChar(32)
+  /// 系统预置头像编号（如 cat_03）。不提供上传真人照片的入口。
+  avatarPreset String?   @db.VarChar(16)
+  levelId      BigInt?
+  levelAssignedAt DateTime?
+  parentUserId BigInt?
+  /// 教师侧备注名（仅教师/后台可见），属教师工作记录
+  teacherRemark String?  @db.VarChar(32)
+  pinHash      String?   @db.VarChar(128)
+  baseScore    Int?
+  /// 1在读 2请假 3结业 4流失
+  status       Int       @default(1) @db.TinyInt
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  tenant   Tenant  @relation(fields: [tenantId], references: [id])
+  level    Level?  @relation(fields: [levelId], references: [id])
+  consents GuardianConsent[]
+
+  @@index([tenantId, status])
+  @@map("student")
+}
+
+/// 监护人知情同意记录。★ 合规强依赖，不可删除，作为举证凭证。
+model GuardianConsent {
+  id            BigInt    @id @default(autoincrement())
+  tenantId      BigInt
+  studentId     BigInt
+  userId        BigInt
+  policyVersion String    @db.VarChar(16)
+  /// REGISTER / RECORDING / SHARE
+  consentType   String    @db.VarChar(32)
+  consented     Int       @db.TinyInt
+  ip            String?   @db.VarChar(64)
+  ua            String?   @db.VarChar(255)
+  revokedAt     DateTime?
+  createdAt     DateTime  @default(now())
+
+  student Student @relation(fields: [studentId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, studentId])
+  @@index([studentId, consentType])
+  @@map("guardian_consent")
+}
+
+// ─────────────────────────────────────────────────────────────
+// 班级与内容（M3 实现业务逻辑，M1 先建表以保证多租户底座可验证）
+// ─────────────────────────────────────────────────────────────
+
+model ClassGroup {
+  id         BigInt   @id @default(autoincrement())
+  tenantId   BigInt
+  name       String   @db.VarChar(64)
+  /// 1班级 2小组
+  type       Int      @default(1) @db.TinyInt
+  parentId   BigInt?
+  teacherId  BigInt?
+  levelId    BigInt?
+  inviteCode String?  @db.VarChar(32)
+  status     Int      @default(1) @db.TinyInt
+  createdAt  DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, status])
+  @@map("class_group")
+}
+
+model GroupMember {
+  id        BigInt    @id @default(autoincrement())
+  tenantId  BigInt
+  groupId   BigInt
+  studentId BigInt
+  levelId   BigInt?
+  joinedAt  DateTime  @default(now())
+  leftAt    DateTime?
+
+  @@unique([groupId, studentId])
+  @@index([tenantId, studentId])
+  @@map("group_member")
+}
+
+/// 素材 = 被朗读、被评测的对象。
+model Material {
+  id        BigInt   @id @default(autoincrement())
+  tenantId  BigInt
+  /// 1音素 2单词 3句子 4儿歌 5绘本段落
+  type      Int      @db.TinyInt
+  content   String   @db.VarChar(512)
+  phonetic  String?  @db.VarChar(128)
+  /// 音节划分，如 ["pen","cil"] —— 前端按音节拆分着色（PRD 2.3 / F2-4）
+  syllables Json?
+  /// 字母-音素映射，如 [{"l":"p","ph":"p"},{"l":"e","ph":"e"}] —— 自然拼读字母块
+  letterPhonemeMap Json?
+  translation String? @db.VarChar(255)
+  audioNorm String?  @db.VarChar(255)
+  audioSlow String?  @db.VarChar(255)
+  audioMedium String? @db.VarChar(255)
+  coverUrl  String?  @db.VarChar(255)
+  levelId   BigInt?
+  /// 0单词 1句子 2段落（冗余存储，避免运行时反查）
+  evalMode  Int      @default(0) @db.TinyInt
+  tags      Json?
+  source    String?  @db.VarChar(64)
+  copyrightNote String? @db.VarChar(255)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  level  Level? @relation(fields: [levelId], references: [id])
+
+  @@index([tenantId, type])
+  @@map("material")
+}

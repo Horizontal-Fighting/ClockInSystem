@@ -1,0 +1,49 @@
+# 本地开发用：MySQL 8 + Redis 7
+# 用法：npm run docker:up   /   npm run docker:down
+#
+# ★ 与线上 docker-compose 保持同名服务与同名库，避免"本地能跑线上挂"这类环境差异。
+#   线上版本见 deploy/ 目录。
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: pinpin-mysql
+    restart: unless-stopped
+    command:
+      # utf8mb4 + 不区分大小写的排序规则；8.0 默认已是 utf8mb4_0900_ai_ci，显式写出防版本漂移
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_0900_ai_ci
+      --default-time-zone=+08:00
+    environment:
+      MYSQL_ROOT_PASSWORD: pinpin_dev_root
+      MYSQL_DATABASE: pinpin
+      MYSQL_USER: pinpin
+      MYSQL_PASSWORD: pinpin_dev_pwd
+    ports:
+      - '3306:3306'
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-ppinpin_dev_root']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: pinpin-redis
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes', '--maxmemory', '256mb', '--maxmemory-policy', 'allkeys-lru']
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  mysql_data:
+  redis_data:

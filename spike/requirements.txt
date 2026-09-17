@@ -1,0 +1,9 @@
+# 新版 SOE（WebSocket）所需依赖
+# 说明：新版官方 SDK(tencentcloud-speech-sdk-python) 没有 PyPI 包，
+#       已把源码拉到 spike/_soesdk/ 直接引用（已被 .gitignore 忽略），无需安装。
+websocket-client        # 新版 WebSocket 通信
+imageio-ffmpeg          # 转码 + 自检时生成合成音频（自带 ffmpeg.exe，走 PyPI 快）
+
+# 以下为基础版（即将下线）遗留依赖，新接入不要再用
+# tencentcloud-sdk-python-common
+# tencentcloud-sdk-python-soe

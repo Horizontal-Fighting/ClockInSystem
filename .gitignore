@@ -1,0 +1,52 @@
+# 密钥 — 绝不入库
+.env
+*.env
+!.env.example
+
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log
+
+# 编译产物就近残留（nest build 应输出到 dist/，防止误入库）
+apps/server/**/*.js
+apps/server/**/*.js.map
+apps/server/**/*.d.ts
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# Spike 运行产物
+spike/raw/
+spike/results.csv
+spike/rating_*.csv
+spike/report.txt
+spike/wav16k/
+spike/*.m4a
+spike/*.mp3
+spike/*.wav
+# 新版 SOE SDK 自带的日志，会把调用流水写进来
+tencent_speech.log
+# 调试临时文件
+spike/_*.txt
+
+# 第三方源码（新版 SOE 官方 SDK 无 PyPI 包，从 GitHub 拉取后本地引用，不入库）
+spike/_soesdk/
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# WorkBuddy 应用内部目录（非源码，含本地记忆/技能缓存）
+.workbuddy/
+
+# 根目录调试临时文件
+_*.txt
+_*.log

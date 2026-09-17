@@ -1,0 +1,6 @@
+# Shell 脚本必须以 LF 检出：CRLF 在 Linux 上会导致
+# "/bin/bash^M: bad interpreter" 而部署失败
+*.sh text eol=lf
+
+# 其余文本文件按平台自动归一化
+* text=auto

@@ -1,0 +1,55 @@
+﻿# 样本清单（# 开头为说明行，脚本自动忽略）
+#
+# 列说明：
+#   sample_id : A=单词 B=短句 C=段落 D=坏样本
+#   audio_file: 转码后的 16k/16bit/单声道 wav 路径
+#   ref_text  : 孩子要读的内容
+#   eval_mode : 0=单词 1=句子 2=段落
+#   group     : word / sentence / paragraph / bad
+#   level     : 该学生的水平档（high/mid/low），由老师事先评定
+#   student_id: 学生编号 S01-S10
+#   note      : 备注（坏样本务必写清场景）
+#
+# 构成：单词 12 + 短句 12 + 段落 6 + 坏样本 6 = 36 条，10 名学生
+# 水平分布：S01-S03 = high，S04-S07 = mid，S08-S10 = low（★ 必须有 low，否则分数挤在高位，相关系数失效）
+# 音素覆盖：/æ/ /θ/ /ð/ /ʃ/ /v/ /r/ /l/ /ŋ/ /tʃ/ /dʒ/ /bl/ 中国学生典型难点
+#
+sample_id,audio_file,ref_text,eval_mode,group,level,student_id,note
+A01,wav16k/A01.wav,cat,0,word,high,S01,/ae/ 短元音
+A02,wav16k/A02.wav,thin,0,word,mid,S04,/th/ 咬舌音
+A03,wav16k/A03.wav,three,0,word,low,S08,/th/+/r/ 连缀
+A04,wav16k/A04.wav,van,0,word,mid,S05,/v/ 上齿咬下唇
+A05,wav16k/A05.wav,ship,0,word,high,S02,/sh/
+A06,wav16k/A06.wav,red,0,word,mid,S04,/r/ 卷舌
+A07,wav16k/A07.wav,light,0,word,low,S09,/l/ 舌位
+A08,wav16k/A08.wav,sing,0,word,high,S03,/ng/ 后鼻音
+A09,wav16k/A09.wav,this,0,word,low,S08,/dh/ 浊咬舌
+A10,wav16k/A10.wav,chip,0,word,mid,S05,/ch/
+A11,wav16k/A11.wav,jump,0,word,high,S01,/j/+/mp/ 尾音
+A12,wav16k/A12.wav,black,0,word,low,S09,/bl/ 辅音连缀
+B01,wav16k/B01.wav,"I have a big red bag.",1,sentence,high,S01,
+B02,wav16k/B02.wav,"This is my thin cat.",1,sentence,mid,S05,th 密集
+B03,wav16k/B03.wav,"She sells three fish.",1,sentence,low,S09,sh+th 绕口
+B04,wav16k/B04.wav,"The ship is very big.",1,sentence,high,S03,sh+v
+B05,wav16k/B05.wav,"My father and mother like tea.",1,sentence,mid,S06,dh 密集
+B06,wav16k/B06.wav,"Let me look at the light.",1,sentence,low,S08,l 密集
+B07,wav16k/B07.wav,"I think this is a good book.",1,sentence,mid,S04,th+dh
+B08,wav16k/B08.wav,"We have five lovely dogs.",1,sentence,high,S02,v+l
+B09,wav16k/B09.wav,"The cat is black and white.",1,sentence,mid,S06,
+B10,wav16k/B10.wav,"Please sit down and read.",1,sentence,low,S10,
+B11,wav16k/B11.wav,"He is singing a nice song.",1,sentence,high,S03,ng 密集
+B12,wav16k/B12.wav,"I like chips and juice.",1,sentence,mid,S07,ch+j
+C01,wav16k/C01.wav,"The sun is shining and the birds are singing. It is a beautiful day. Tom and his dog go to the park. They run and play on the grass.",2,paragraph,high,S02,
+C02,wav16k/C02.wav,"My name is Lily. I am eight years old. I have a small cat. Her name is Mimi. She is black and white. I love her very much.",2,paragraph,mid,S05,
+C03,wav16k/C03.wav,"It is raining today. I take my red umbrella. The rain makes a nice sound. I like walking in the rain with my mother.",2,paragraph,low,S10,
+C04,wav16k/C04.wav,"Every morning I get up at seven. I wash my face and brush my teeth. Then I eat bread and drink milk. I go to school by bus.",2,paragraph,high,S03,
+C05,wav16k/C05.wav,"There are three little pigs. The first pig has a house of straw. The second pig has a house of wood. The third pig works very hard.",2,paragraph,mid,S07,
+C06,wav16k/C06.wav,"My father is a teacher. He works in a big school. He likes reading books and playing basketball. He is very kind to his students.",2,paragraph,high,S01,
+# ★ 坏样本统一用句子模式(eval_mode=1)：单词模式下「流利度/完整度」返回 -1，
+#   而「没读完 / 卡顿」的判定恰恰依赖完整度，用单词模式拿不到判据
+D01,wav16k/D01.wav,"I have a big red bag.",1,bad,mid,S04,离麦克风约 50cm
+D02,wav16k/D02.wav,"I have a big red bag.",1,bad,high,S02,开着电视当背景噪音
+D03,wav16k/D03.wav,"I have a big red bag.",1,bad,low,S09,故意很小声
+D04,wav16k/D04.wav,"I have a big red bag.",1,bad,mid,S06,只读前 1/3 就停下
+D05,wav16k/D05.wav,"I have a big red bag.",1,bad,low,S10,中间卡顿并重复重读
+D06,wav16k/D06.wav,"I have a big red bag.",1,bad,mid,S07,故意念成别的句子（内容与文本不符）

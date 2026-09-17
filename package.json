@@ -1,0 +1,21 @@
+{
+  "name": "pinpin-english",
+  "version": "0.1.0",
+  "private": true,
+  "description": "拼拼英语打卡 - 多租户英语自然拼读打卡小程序",
+  "workspaces": [
+    "apps/server"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspace=apps/server",
+    "build": "npm run build --workspace=apps/server",
+    "test": "npm run test --workspace=apps/server",
+    "test:e2e": "npm run test:e2e --workspace=apps/server",
+    "prisma": "npm run prisma --workspace=apps/server",
+    "docker:up": "docker compose -f docker/dev-compose.yml up -d",
+    "docker:down": "docker compose -f docker/dev-compose.yml down"
+  }
+}
