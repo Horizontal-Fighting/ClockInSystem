@@ -1,10 +1,19 @@
 import { Body, Controller, Get, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
+import { IsString, IsNotEmpty, IsOptional, IsNumber } from 'class-validator';
 import { AuthGuard } from '../../common/auth/auth.guard';
 import { StudentService } from './student.service';
 
 class CreateStudentDto {
+  @IsString()
+  @IsNotEmpty()
   nickname!: string;
+
+  @IsOptional()
+  @IsString()
   avatarPreset?: string;
+
+  @IsOptional()
+  @IsNumber()
   levelId?: number;
 }
 

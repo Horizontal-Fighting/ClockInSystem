@@ -1,10 +1,19 @@
 import { Body, Controller, Post } from '@nestjs/common';
+import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
 import { AuthService } from './auth.service';
 
 class LoginDto {
+  @IsString()
+  @IsNotEmpty()
   username!: string;
+
+  @IsString()
+  @IsNotEmpty()
   password!: string;
+
   /** 可选。一个账号属于多个机构时传，用来指定进入哪个机构 */
+  @IsOptional()
+  @IsString()
   tenantId?: string;
 }
 

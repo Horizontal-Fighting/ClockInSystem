@@ -54,8 +54,8 @@ export class AuthService {
     const rows = (await this.prisma.$queryRaw`
       SELECT t.id AS id, t.name AS name, ut.role AS role
       FROM user_tenant ut
-      JOIN tenant t ON t.id = ut.tenant_id
-      WHERE ut.user_id = ${user.id} AND ut.status = 1 AND t.status = 1
+      JOIN tenant t ON t.id = ut.tenantId
+      WHERE ut.userId = ${user.id} AND ut.status = 1 AND t.status = 1
     `) as Array<{ id: bigint; name: string; role: number }>;
 
     if (rows.length === 0) {

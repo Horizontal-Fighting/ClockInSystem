@@ -1,9 +1,19 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication, ValidationPipe, VersioningType } from '@nestjs/common';
 import request from 'supertest';
 import bcrypt from 'bcryptjs';
 import { AppModule } from '../src/app.module';
 import { PRISMA, PrismaWithTenant } from '../src/common/prisma/prisma.module';
+
+/**
+ * ★ BigInt 序列化兜底（与 main.ts 一致）
+ * 测试不走 main.ts 的 bootstrap，故这里手动补上：否则响应体里的 BigInt id
+ * 会让 Express 的 JSON.stringify 抛 "Do not know how to serialize a BigInt" → 500。
+ * 安全前提：ID 远小于 Number.MAX_SAFE_INTEGER(2^53)。
+ */
+(BigInt.prototype as unknown as { toJSON: () => number }).toJSON = function () {
+  return Number(this);
+};
 
 /**
  * ★★★ 跨租户越权自动化测试（docs/02 文档 1.4.2 明确要求进 CI）★★★
@@ -41,25 +51,29 @@ describe('跨租户数据隔离（越权防护）', () => {
 
     app = moduleFixture.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+    // 复制 main.ts 的全局前缀与 URI 版本化，否则 e2e 路由是裸路径 /auth/login，
+    // 与线上 /api/v1/auth/login 不一致会导致 404
+    app.setGlobalPrefix('api', { exclude: ['health'] });
+    app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
     await app.init();
 
     prisma = moduleFixture.get<PrismaWithTenant>(PRISMA);
 
     // ── 准备数据：两个租户 + 两个用户（用 raw SQL，此时还没有租户上下文）
-    await prisma.$executeRaw`DELETE FROM guardian_consent WHERE tenant_id IN (SELECT id FROM tenant WHERE code LIKE 'E2E_%')`;
-    await prisma.$executeRaw`DELETE FROM student WHERE tenant_id IN (SELECT id FROM tenant WHERE code LIKE 'E2E_%')`;
-    await prisma.$executeRaw`DELETE FROM user_tenant WHERE tenant_id IN (SELECT id FROM tenant WHERE code LIKE 'E2E_%')`;
+    await prisma.$executeRaw`DELETE FROM guardian_consent WHERE tenantId IN (SELECT id FROM tenant WHERE code LIKE 'E2E_%')`;
+    await prisma.$executeRaw`DELETE FROM student WHERE tenantId IN (SELECT id FROM tenant WHERE code LIKE 'E2E_%')`;
+    await prisma.$executeRaw`DELETE FROM user_tenant WHERE tenantId IN (SELECT id FROM tenant WHERE code LIKE 'E2E_%')`;
     await prisma.$executeRaw`DELETE FROM tenant WHERE code LIKE 'E2E_%'`;
     await prisma.$executeRaw`DELETE FROM user WHERE username LIKE 'e2e_%'`;
 
     const hash = await bcrypt.hash(pwd, 10);
     await prisma.$executeRaw`
-      INSERT INTO tenant (name, code, status, quota_student) VALUES
-        ('E2E 机构A', 'E2E_A', 1, 100), ('E2E 机构B', 'E2E_B', 1, 100)
+      INSERT INTO tenant (name, code, status, quotaStudent, createdAt, updatedAt) VALUES
+        ('E2E 机构A', 'E2E_A', 1, 100, NOW(3), NOW(3)), ('E2E 机构B', 'E2E_B', 1, 100, NOW(3), NOW(3))
     `;
     await prisma.$executeRaw`
-      INSERT INTO user (username, password, nickname, status) VALUES
-        ('e2e_user_a', ${hash}, '用户A', 1), ('e2e_user_b', ${hash}, '用户B', 1)
+      INSERT INTO user (username, password, nickname, status, createdAt, updatedAt) VALUES
+        ('e2e_user_a', ${hash}, '用户A', 1, NOW(3), NOW(3)), ('e2e_user_b', ${hash}, '用户B', 1, NOW(3), NOW(3))
     `;
 
     const tenants = await prisma.$queryRaw<Array<{ id: bigint; code: string }>>`
@@ -75,7 +89,7 @@ describe('跨租户数据隔离（越权防护）', () => {
     const userBId = users.find((u) => u.username === 'e2e_user_b')!.id;
 
     await prisma.$executeRaw`
-      INSERT INTO user_tenant (user_id, tenant_id, role, status) VALUES
+      INSERT INTO user_tenant (userId, tenantId, role, status) VALUES
         (${userAId}, ${tenantAId}, 3, 1), (${userBId}, ${tenantBId}, 3, 1)
     `;
 
@@ -94,8 +108,8 @@ describe('跨租户数据隔离（越权防护）', () => {
 
   afterAll(async () => {
     if (prisma) {
-      await prisma.$executeRaw`DELETE FROM student WHERE tenant_id IN (SELECT id FROM tenant WHERE code LIKE 'E2E_%')`;
-      await prisma.$executeRaw`DELETE FROM user_tenant WHERE tenant_id IN (SELECT id FROM tenant WHERE code LIKE 'E2E_%')`;
+      await prisma.$executeRaw`DELETE FROM student WHERE tenantId IN (SELECT id FROM tenant WHERE code LIKE 'E2E_%')`;
+      await prisma.$executeRaw`DELETE FROM user_tenant WHERE tenantId IN (SELECT id FROM tenant WHERE code LIKE 'E2E_%')`;
       await prisma.$executeRaw`DELETE FROM tenant WHERE code LIKE 'E2E_%'`;
       await prisma.$executeRaw`DELETE FROM user WHERE username LIKE 'e2e_%'`;
     }
@@ -150,11 +164,11 @@ describe('跨租户数据隔离（越权防护）', () => {
 
     // 关键断言：即使伪造字段被剥离了，落库也必须是 B 租户（由上下文注入）
     const rows = (await prisma.$queryRaw`
-      SELECT tenant_id FROM student WHERE nickname = '伪造租户的学生'
-    `) as Array<{ tenant_id: bigint }>;
+      SELECT tenantId FROM student WHERE nickname = '伪造租户的学生'
+    `) as Array<{ tenantId: bigint }>;
 
     expect(rows.length).toBeGreaterThan(0);
-    rows.forEach((r) => expect(r.tenant_id).toBe(tenantBId));
+    rows.forEach((r) => expect(r.tenantId).toBe(tenantBId));
   });
 
   it('★ 未登录访问租户数据必须 401', async () => {
