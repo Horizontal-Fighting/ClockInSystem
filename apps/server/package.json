@@ -12,7 +12,8 @@
     "prisma": "prisma",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:studio": "prisma studio"
+    "prisma:studio": "prisma studio",
+    "db:seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",
@@ -40,6 +41,10 @@
     "prisma": "^6.1.0",
     "supertest": "^7.0.0",
     "ts-jest": "^29.2.5",
+    "tsx": "^4.23.13",
     "typescript": "^5.7.0"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   }
 }
