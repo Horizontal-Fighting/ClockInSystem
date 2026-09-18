@@ -251,3 +251,351 @@ model Material {
   @@index([tenantId, type])
   @@map("material")
 }
+
+// ════════════════════════════════════════════════════════════════
+// 以下为 M2–M6 业务表。所有业务表均带 tenantId（多租户铁律 1.4.2），
+// 索引以 tenantId 打头，唯一索引含 tenantId。
+// 引用既有表（tenant/student/material/level/user）统一用标量外键，
+// 不挂 @relation，避免改动已应用迁移；租户隔离由 prisma-tenant.extension 保证。
+// ════════════════════════════════════════════════════════════════
+
+// ── M3 内容与任务 ────────────────────────────────────────────────
+
+model MaterialPack {
+  id        BigInt   @id @default(autoincrement())
+  tenantId  BigInt
+  name      String   @db.VarChar(128)
+  coverUrl  String?  @db.VarChar(255)
+  levelId   BigInt?
+  sort      Int      @default(0)
+  status    Int      @default(1) @db.TinyInt // 1启用 2停用
+  itemCount Int      @default(0)             // 冗余计数，列表展示用
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items PackItem[]
+
+  @@index([tenantId, status])
+  @@map("material_pack")
+}
+
+model PackItem {
+  id        BigInt  @id @default(autoincrement())
+  tenantId  BigInt
+  packId    BigInt
+  materialId BigInt
+  sort      Int     @default(0)
+  required  Int     @default(1) @db.TinyInt // 1必做 0选做
+  createdAt DateTime @default(now())
+
+  pack MaterialPack @relation(fields: [packId], references: [id])
+
+  @@unique([packId, materialId])
+  @@index([tenantId, packId])
+  @@map("pack_item")
+}
+
+model Task {
+  id             BigInt   @id @default(autoincrement())
+  tenantId       BigInt
+  title          String   @db.VarChar(128)
+  packId         BigInt?
+  teacherId      BigInt?
+  evalMode       Int      @default(0) @db.TinyInt // 0单词 1句子 2段落，冗余存储
+  publishAt      DateTime?
+  dueAt          DateTime?
+  requireAll     Int      @default(0) @db.TinyInt
+  allowMakeup    Int      @default(0) @db.TinyInt
+  status         Int      @default(1) @db.TinyInt // 1草稿 2已发布 3已截止 4已归档
+  targetType     Int?     @db.TinyInt // 1班级 2小组 3学生
+  coursewareId   BigInt?
+  requireCourseware Int    @default(0) @db.TinyInt
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  targets TaskTarget[]
+
+  @@index([tenantId, status])
+  @@map("task")
+}
+
+model TaskTarget {
+  id        BigInt @id @default(autoincrement())
+  tenantId  BigInt
+  taskId    BigInt
+  targetType Int  @db.TinyInt // 1班级 2小组 3学生
+  targetId  BigInt
+
+  task Task @relation(fields: [taskId], references: [id])
+
+  @@unique([taskId, targetType, targetId])
+  @@index([tenantId, targetType, targetId])
+  @@map("task_target")
+}
+
+// ── M3 课件三表 ──────────────────────────────────────────────────
+
+model Courseware {
+  id                BigInt   @id @default(autoincrement())
+  tenantId          BigInt
+  title             String   @db.VarChar(128)
+  coverUrl          String?  @db.VarChar(255)
+  intro             String?  @db.VarChar(512)
+  levelId           BigInt?
+  blockCount        Int      @default(0)
+  audioDurationTotal Int     @default(0)
+  status            Int      @default(1) @db.TinyInt // 1草稿 2已发布 3已下架
+  createdBy         BigInt?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  blocks CoursewareBlock[]
+
+  @@index([tenantId, status])
+  @@map("courseware")
+}
+
+model CoursewareBlock {
+  id           BigInt   @id @default(autoincrement())
+  tenantId     BigInt
+  coursewareId BigInt
+  blockType    Int      @db.TinyInt // 1文本 2图片 3讲解音频 4素材引用
+  sort         Int      @default(0)
+  textContent  String?  @db.Text
+  assetUrl     String?  @db.VarChar(255) // 类型2/3：存 COS key，不存完整 URL
+  durationMs   Int?
+  refMaterialId BigInt?
+  showTitle    String?  @db.VarChar(128)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  courseware Courseware @relation(fields: [coursewareId], references: [id])
+
+  @@index([coursewareId, sort])
+  @@map("courseware_block")
+}
+
+model CoursewareProgress {
+  id            BigInt   @id @default(autoincrement())
+  tenantId      BigInt
+  studentId     BigInt
+  coursewareId  BigInt
+  lastBlockSort Int      @default(0)
+  finished      Int      @default(0) @db.TinyInt
+  finishedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([studentId, coursewareId])
+  @@index([tenantId, coursewareId])
+  @@map("courseware_progress")
+}
+
+// ── M2 媒体 / 打卡 / 评测 ────────────────────────────────────────
+
+model MediaFile {
+  id         BigInt   @id @default(autoincrement())
+  tenantId   BigInt
+  bucket     String?  @db.VarChar(64)
+  objectKey  String   @db.VarChar(255) // COS key 或本地相对路径
+  mime       String?  @db.VarChar(64)
+  sizeBytes  Int?
+  durationMs Int?
+  createdAt  DateTime @default(now())
+
+  checkinItems CheckinItem[]
+
+  @@index([tenantId, id])
+  @@map("media_file")
+}
+
+model CheckinRecord {
+  id          BigInt    @id @default(autoincrement())
+  tenantId    BigInt
+  taskId      BigInt?
+  studentId   BigInt
+  dueDate     DateTime  @db.Date
+  status      Int       @default(1) @db.TinyInt // 1待打卡 2已提交 3已点评 4需重做 5已完课
+  itemTotal   Int       @default(0)
+  itemDone    Int       @default(0)
+  avgScore    Decimal?  @db.Decimal(5, 2)
+  bestScore   Decimal?  @db.Decimal(5, 2)
+  submittedAt DateTime?
+  reviewedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime @updatedAt
+
+  items CheckinItem[]
+
+  @@index([tenantId, studentId, dueDate])
+  @@map("checkin_record")
+}
+
+model CheckinItem {
+  id           BigInt    @id @default(autoincrement())
+  tenantId     BigInt
+  recordId     BigInt
+  materialId   BigInt
+  studentId    BigInt
+  dueDate      DateTime  @db.Date
+  audioFileId  BigInt?
+  durationMs   Int?
+  volumeAvg    Int?
+  attemptCount Int       @default(1)
+  score        Decimal?  @db.Decimal(5, 2)
+  accuracy     Decimal?  @db.Decimal(5, 2)
+  fluency      Decimal?  @db.Decimal(5, 2)
+  completion   Decimal?  @db.Decimal(5, 2)
+  star         Int?      @db.TinyInt // 1-3
+  weakPhonemes Json?
+  evalStatus   Int       @default(1) @db.TinyInt // 1待评测 2评测中 3成功 4失败
+  evalProvider String?   @db.VarChar(32)
+  evalCostMs   Int?
+  isSelected   Int       @default(0) @db.TinyInt
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  record     CheckinRecord @relation(fields: [recordId], references: [id])
+  audio      MediaFile?    @relation(fields: [audioFileId], references: [id])
+  scoreDetail ScoreDetail?
+
+  @@index([tenantId, recordId])
+  @@index([tenantId, studentId, dueDate])
+  @@map("checkin_item")
+}
+
+model ScoreDetail {
+  id            BigInt   @id @default(autoincrement())
+  tenantId      BigInt
+  itemId        BigInt   @unique
+  provider      String   @db.VarChar(32) // tencent_soe / iflytek
+  rawJson       Json
+  suggestedScore Decimal? @db.Decimal(5, 2)
+  createdAt     DateTime @default(now())
+
+  item CheckinItem @relation(fields: [itemId], references: [id])
+
+  @@index([tenantId, itemId])
+  @@map("score_detail")
+}
+
+model Review {
+  id          BigInt   @id @default(autoincrement())
+  tenantId    BigInt
+  recordId    BigInt
+  itemId      BigInt?
+  teacherId   BigInt?
+  studentId   BigInt
+  tagIds      Json?
+  text        String?  @db.VarChar(500)
+  audioFileId BigInt?
+  needRedo    Int      @default(0) @db.TinyInt
+  isRead      Int      @default(0) @db.TinyInt
+  createdAt   DateTime @default(now())
+
+  @@index([tenantId, recordId])
+  @@index([tenantId, studentId])
+  @@map("review")
+}
+
+// ── M5 统计与配置 ───────────────────────────────────────────────
+
+model StudentStat {
+  id              BigInt    @id @default(autoincrement())
+  tenantId        BigInt
+  studentId       BigInt    @unique
+  continuousDays  Int       @default(0)
+  maxContinuousDays Int     @default(0)
+  totalDays       Int       @default(0)
+  totalDurationMs Int       @default(0)
+  totalStars      Int       @default(0)
+  avgScore30d     Decimal?  @db.Decimal(5, 2)
+  lastCheckinDate DateTime? @db.Date
+  trend           Int       @default(2) @db.TinyInt // 1上升 2平稳 3下降
+  updatedAt       DateTime  @updatedAt
+
+  @@index([tenantId, studentId])
+  @@map("student_stat")
+}
+
+model DailyClassStat {
+  id             BigInt    @id @default(autoincrement())
+  tenantId       BigInt
+  groupId        BigInt
+  date           DateTime  @db.Date
+  submittedCount Int       @default(0)
+  reviewedCount  Int       @default(0)
+  avgScore       Decimal?  @db.Decimal(5, 2)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([tenantId, groupId, date])
+  @@map("daily_class_stat")
+}
+
+model SysConfig {
+  id          BigInt   @id @default(autoincrement())
+  tenantId    BigInt   // 0 表示全局默认
+  configKey   String   @db.VarChar(64)
+  configValue Json
+  remark      String?  @db.VarChar(255)
+  updatedBy   BigInt?
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, configKey])
+  @@map("sys_config")
+}
+
+model MaterialPhoneme {
+  id              BigInt   @id @default(autoincrement())
+  tenantId        BigInt   // 0 平台公共音素字典
+  symbol          String   @db.VarChar(32)
+  standardAudioUrl String? @db.VarChar(255)
+  createdAt       DateTime @default(now())
+
+  @@unique([tenantId, symbol])
+  @@map("material_phoneme")
+}
+
+model TenantUsage {
+  id            BigInt   @id @default(autoincrement())
+  tenantId      BigInt
+  date          DateTime  @db.Date
+  evalCount     Int       @default(0)
+  storageBytes  BigInt    @default(0)
+  activeStudents Int      @default(0)
+  activeTeachers Int      @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([tenantId, date])
+  @@map("tenant_usage")
+}
+
+model Notification {
+  id         BigInt   @id @default(autoincrement())
+  tenantId   BigInt
+  userId     BigInt?
+  templateId String?  @db.VarChar(64)
+  status     Int      @default(0) @db.TinyInt // 0待发 1成功 2失败
+  wxCode     String?  @db.VarChar(64)
+  content    String?  @db.VarChar(512)
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId, userId])
+  @@map("notification")
+}
+
+model OperationLog {
+  id          BigInt   @id @default(autoincrement())
+  tenantId    BigInt
+  actorUserId BigInt?
+  action      String   @db.VarChar(64)
+  targetType  String?  @db.VarChar(32)
+  targetId    BigInt?
+  detail      Json?
+  createdAt   DateTime @default(now())
+
+  @@index([tenantId, action])
+  @@map("operation_log")
+}
